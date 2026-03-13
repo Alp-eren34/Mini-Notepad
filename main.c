@@ -7,6 +7,7 @@
 #include <sys/stat.h> // S_ISDIR makrosu ve stat fonksiyonu için
 
 int isUndoing = 0; // Geri alma işlemi yapılıp yapılmadığını takip eden bayrak
+int isNavigatingMatch = 0; //Gezinme modunda olup olmadığımızı tutar
 
 // Her bir karakteri tutacak olan Çift Yönlü Bağlı Liste Düğümü
 typedef struct Node {
@@ -214,60 +215,78 @@ void moveWordRight(Editor* editor) {
            }
 }
 
+
+
+// Düğümün (harfin) metindeki sırasını (indeksini) bulur.
+// İmleç en baştaysa (NULL) 0 döner.
+int getNodeIndex(Editor* editor, Node* target) {
+    if (target == NULL) return 0;
+    int idx = 1;
+    Node* temp = editor->head;
+    while (temp != NULL) {
+        if (temp == target) return idx;
+        idx++;
+        temp = temp->next;
+    }
+    return 0;
+}
+
+// Ekranı ve Metni Çizdirme Fonksiyonu
 void printText(Editor* editor) {
-    // 1. Ekranı Temizle
     system("cls");
+    printf("\x1b[2J\x1b[H");
 
-    // 2. Toolbox (Şerit) Tasarımı
-    printf(" Dosya Ac(CTRL+O) | Kaydet(CTRL+S) | Farkli Kaydet(CTRL+SHIFT+S) | Bul(CTRL+F) | Degistir(CTRL+H) \n");
-    printf(" Kopyala(CTRL+C) | Eslesmeleri Bul(CTRL+G) | Kes(CTRL+X) | Yapistir(CTRL+V) | Geri Al(CTRL+Z) | Cikis(ESC) \n");
-    printf("-------------------------------------------------------------------------------------------------------------\n");
+    printf(" Dosya Ac(CTRL+O) | Kaydet(CTRL+S) | Farkli Kaydet(CTRL+SHIFT+S) | Bul(CTRL+F) | Degistir(CTRL+H)\n");
+    printf(" Kopyala(CTRL+C)  | Sec(CTRL+YON)  | Kes(CTRL+X) | Yapistir(CTRL+V) | Geri Al(CTRL+Z) | Cikis(ESC)\n");
+    printf("--------------------------------------------------------------------------------------------------\n");
 
-    // 3. Metin ve Satır Numaralarını Yazdırma
     int lineNumber = 1;
-
-    //satir basi numaralari
     printf("%3d | ", lineNumber);
 
-    Node* current = editor->head;
+    int startIdx = getNodeIndex(editor, editor->selectStart);
+    int endIdx = getNodeIndex(editor, editor->selectEnd);
+    int minIdx = (startIdx < endIdx) ? startIdx : endIdx;
+    int maxIdx = (startIdx > endIdx) ? startIdx : endIdx;
 
-    int inSelection = 0; // Seçim aralığında mıyız kontrolü
+    Node* current = editor->head;
+    int currentIdx = 1;
+
+    int searchLen = strlen(editor->searchWord);
+    int blueRemaining = 0;
 
     while (current != NULL) {
-        // Eğer arama (CTRL+F) kelimesi varsa mavi yapma kodlarımız burada durmaya devam edecek...
-        // (Daha önce yazdığımız mavi arka plan kodlarını buraya dahil ettiğini varsayıyorum)
-
-        // SEÇİM (SARI ARKA PLAN) KONTROLÜ
-        int isCurrentNodeSelected = 0;
-
-        // Eğer bir seçim varsa ve sınırlar belliyse
-        if (editor->selectStart != NULL && editor->selectEnd != NULL) {
-            // Başlangıç veya bitiş düğümüne geldiysek durumu değiştir
-            if (current == editor->selectStart || current == editor->selectEnd) {
-                // Eğer sadece 1 karakter seçiliyse
-                if (editor->selectStart == editor->selectEnd) {
-                    isCurrentNodeSelected = 1;
-                } else {
-                    inSelection = !inSelection; // Seçim alanına girdik veya çıkıyoruz
-                    isCurrentNodeSelected = 1;  // Sınır düğümleri de sarı olmalı
+        // --- ARAMA (MAVİ) KONTROLÜ ---
+        if (searchLen > 0 && blueRemaining == 0) {
+            if (isMatch(current, editor->searchWord)) {
+                // EĞER CTRL+G İLE GEZİNİYORSAK (1) SADECE İMLECİN ÜZERİNDE OLDUĞU KELİMEYİ BOYARIZ.
+                // EĞER NORMAL CTRL+F İSE (0) HEPSİNİ BOYARIZ.
+                if (isNavigatingMatch == 0 || current == editor->cursor) {
+                    blueRemaining = searchLen;
                 }
-            } else if (inSelection) {
-                isCurrentNodeSelected = 1; // Aradaki düğümler de sarı olmalı
             }
         }
 
-        // Rengi Ayarla
-        if (isCurrentNodeSelected) {
-            // Arka planı SARI, yazıyı SİYAH yap
+        // --- SEÇİM (SARI) KONTROLÜ ---
+        int isSelected = 0;
+        if ((editor->selectStart != NULL || editor->selectEnd != NULL) && startIdx != endIdx) {
+            if (currentIdx > minIdx && currentIdx <= maxIdx) {
+                isSelected = 1;
+            }
+        }
+
+        // --- RENKLENDİRME ---
+        if (blueRemaining > 0) {
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), BACKGROUND_BLUE | BACKGROUND_INTENSITY | FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+            blueRemaining--;
+        }
+        else if (isSelected) {
             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), BACKGROUND_RED | BACKGROUND_GREEN | FOREGROUND_INTENSITY);
-        } else {
-            // Normal Renk (Siyah arka plan, Beyaz yazı)
+        }
+        else {
             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
         }
 
-        putchar(current->data); // Karakteri ekrana bas
-
-        // Renkleri sıfırla (eğer sarıysa diğer karakterleri etkilemesin)
+        putchar(current->data);
         SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 
         if (current->data == '\n') {
@@ -275,15 +294,10 @@ void printText(Editor* editor) {
             printf("%3d | ", lineNumber);
         }
 
-        // Eğer seçim alanından çıkıyorsak (sınır düğümünü az önce bastık) ve tek karakter değilse inSelection'ı kapat
-        if ((current == editor->selectStart || current == editor->selectEnd) && editor->selectStart != editor->selectEnd && isCurrentNodeSelected) {
-           // Zaten inSelection toggle ile değiştiği için ek bir şeye gerek yok.
-        }
-
         current = current->next;
+        currentIdx++;
     }
 }
-
 // 1. Ekrandaki fiziksel imleci (X, Y) koordinatına taşıyan fonksiyon
 void gotoxy(int x, int y) {
     COORD coord;
@@ -600,58 +614,86 @@ void replaceText(Editor* editor) {
     char oldWord[100];
     char newWord[100];
 
-    // Konsolun altına inip kullanıcıdan kelimeleri al
+    // 1. AŞAMA: Eski Kelimeyi Al
     gotoxy(0, 20);
-    printf("Degistirilecek kelime (iptal icin '-'): ");
-    scanf("%99s", oldWord);
+    printf("Degistirilecek kelime [Iptal icin ESC]: ");
 
-    // Proje isterinde ESC ile iptal isteniyor. scanf fonksiyonu Enter beklediği için,
-    // ESC davranışını simüle etmek adına '-' girilirse iptal edilecek şekilde ayarlıyoruz.
-    if (strcmp(oldWord, "-") == 0) return;
-
-    gotoxy(0, 21);
-    printf("Yeni kelime (Eski kelimeyi tamamen silmek icin '-' yazin): ");
-    scanf("%99s", newWord);
-
-    // Eğer yeni kelimeye '-' girilirse, aslında "eski kelimeyi sil" işlemi yapmak istiyoruz demektir
-    if (strcmp(newWord, "-") == 0) {
-        newWord[0] = '\0'; // Yeni kelimeyi boş string yap
+    int i = 0;
+    while (1) {
+        int ch = _getch();
+        if (ch == 27) return; // ESC: İşlemi anında iptal et ve çık
+        else if (ch == 13) { // ENTER: Kelime girişini tamamla
+            oldWord[i] = '\0';
+            break;
+        }
+        else if (ch == 8) { // BACKSPACE: Karakter sil
+            if (i > 0) {
+                i--;
+                printf("\b \b"); // Ekrandaki son harfi sil
+            }
+        }
+        else if (ch >= 32 && ch <= 126 && i < 99) { // NORMAL HARFLER
+            oldWord[i++] = (char)ch;
+            putchar(ch); // Harfi ekrana bas
+        }
     }
 
+    if (i == 0) return; // Hiçbir şey yazmadan Enter'a basıldıysa çık
+
+    // 2. AŞAMA: Yeni Kelimeyi Al
+    gotoxy(0, 21);
+    printf("Yeni kelime [Iptal icin ESC]: ");
+
+    int j = 0;
+    while (1) {
+        int ch = _getch();
+        if (ch == 27) return; // ESC: İşlemi anında iptal et ve çık
+        else if (ch == 13) { // ENTER: Kelime girişini tamamla
+            newWord[j] = '\0';
+            break;
+        }
+        else if (ch == 8) { // BACKSPACE: Karakter sil
+            if (j > 0) {
+                j--;
+                printf("\b \b"); // Ekrandaki son harfi sil
+            }
+        }
+        else if (ch >= 32 && ch <= 126 && j < 99) { // NORMAL HARFLER
+            newWord[j++] = (char)ch;
+            putchar(ch); // Harfi ekrana bas
+        }
+    }
+
+    // 3. AŞAMA: Değiştirme Algoritması (Burası aynı kalıyor)
     int oldLen = strlen(oldWord);
     int newLen = strlen(newWord);
     Node* current = editor->head;
 
     while (current != NULL) {
-        // Eğer kelime eşleşiyorsa (CTRL+F'te yazdığımız isMatch fonksiyonu)
         if (isMatch(current, oldWord)) {
-            Node* nodeBeforeMatch = current->prev; // Eşleşen kelimenin hemen solundaki düğüm
+            Node* nodeBeforeMatch = current->prev;
 
-            // 1. AŞAMA: Eski kelimeyi bağlı listeden kopar ve RAM'den sil
-            for (int i = 0; i < oldLen; i++) {
+            for (int k = 0; k < oldLen; k++) {
                 Node* toDelete = current;
-                current = current->next; // current işaretçisini bir sağa kaydır
+                current = current->next;
 
-                // Eğer imleç silinen harfin üzerindeyse, onu güvenli bir yere (sola) çek
                 if (editor->cursor == toDelete) {
                     editor->cursor = nodeBeforeMatch;
                 }
-                free(toDelete); // Hafızayı boşalt (Memory Leak önlemi)
+                free(toDelete);
             }
 
-            Node* nodeAfterMatch = current; // Eşleşen kelimenin hemen sağında kalan düğüm
-
-            // 2. AŞAMA: Yeni kelimenin harflerini kopan aralığa tek tek ekle
+            Node* nodeAfterMatch = current;
             Node* lastInserted = nodeBeforeMatch;
 
-            for (int i = 0; i < newLen; i++) {
-                Node* newNode = createNode(newWord[i]); // createNode fonksiyonumuzu kullanıyoruz
+            for (int k = 0; k < newLen; k++) {
+                Node* newNode = createNode(newWord[k]);
 
-                if (lastInserted == NULL) { // Eğer metnin en başına ekliyorsak
+                if (lastInserted == NULL) {
                     newNode->next = editor->head;
                     if (editor->head) editor->head->prev = newNode;
                     editor->head = newNode;
-                } else { // Eğer araya veya sona ekliyorsak
+                } else {
                     newNode->next = lastInserted->next;
                     newNode->prev = lastInserted;
                     lastInserted->next = newNode;
@@ -662,7 +704,6 @@ void replaceText(Editor* editor) {
                 lastInserted = newNode;
             }
 
-            // 3. AŞAMA: Kopan sağ tarafı (nodeAfterMatch) yeni kelimenin sonuna bağla
             if (nodeAfterMatch != NULL) {
                 nodeAfterMatch->prev = lastInserted;
             }
@@ -670,14 +711,11 @@ void replaceText(Editor* editor) {
                 lastInserted->next = nodeAfterMatch;
             }
 
-            // Kuyruk ve Baş (Tail & Head) güncellemeleri
             if (nodeAfterMatch == NULL) editor->tail = lastInserted;
             if (nodeBeforeMatch == NULL && newLen == 0) editor->head = nodeAfterMatch;
 
-            // Aramaya kaldığımız yerden devam et (Tüm eşleşmeleri değiştirmek için)
             current = nodeAfterMatch;
         } else {
-            // Eşleşme yoksa bir sonraki harfe geçerek aramaya devam et
             current = current->next;
         }
     }
@@ -746,6 +784,72 @@ void cutText(Editor* editor) {
     editor->selectEnd = NULL;
 }
 
+// CTRL + G: Eşleşmeleri Bul ve Aralarında Gezin
+void findAndNavigateMatches(Editor* editor) {
+    char word[100];
+    gotoxy(0, 20);
+    printf("Aranacak kelimeyi girin (CTRL+G): ");
+    scanf("%99s", word);
+
+    strcpy(editor->searchWord, word);
+
+    Node* matches[1000];
+    int matchCount = 0;
+
+    Node* current = editor->head;
+    while (current != NULL) {
+        if (isMatch(current, word)) {
+            if (matchCount < 1000) {
+                matches[matchCount] = current;
+                matchCount++;
+            }
+        }
+        current = current->next;
+    }
+
+    if (matchCount == 0) {
+        gotoxy(0, 21);
+        printf("Sonuc: '%s' kelimesi metinde bulunamadi.\n", word);
+        editor->searchWord[0] = '\0';
+        Sleep(1500);
+        return;
+    }
+
+    int currentIndex = 0;
+    int navigating = 1;
+
+    isNavigatingMatch = 1; // EKLENDİ: Tekli mavi boyama modunu aç
+
+    while (navigating) {
+        editor->cursor = matches[currentIndex];
+
+        printText(editor);
+
+        gotoxy(0, 21);
+        printf("--> Eslesme: %d / %d | [SOL] Onceki | [SAG] Sonraki | [ESC] Cikis", currentIndex + 1, matchCount);
+
+        calculateAndMoveCursor(editor);
+
+        int ch = _getch();
+        if (ch == 224 || ch == 0) {
+            int special = _getch();
+            if (special == 75) {
+                if (currentIndex > 0) currentIndex--;
+                else currentIndex = matchCount - 1;
+            }
+            else if (special == 77) {
+                if (currentIndex < matchCount - 1) currentIndex++;
+                else currentIndex = 0;
+            }
+        }
+        else if (ch == 27) {
+            navigating = 0;
+            editor->searchWord[0] = '\0';
+            isNavigatingMatch = 0; // EKLENDİ: Tekli mavi boyama modunu kapat
+        }
+    }
+}
+
 int main() {
     Editor myEditor;
     myEditor.head = NULL;
@@ -780,7 +884,7 @@ int main() {
             int isCtrl = GetAsyncKeyState(VK_CONTROL) & 0x8000;
             int isShift = GetAsyncKeyState(VK_SHIFT) & 0x8000;
 
-            // Eğer seçim yapılıyorsa ve selectStart henüz atanmamışsa, başlangıcı o anki imleç yap
+            // Eğer CTRL'ye basılıysa ve seçim yeni başlıyorsa başlangıç noktasını al
             if (isCtrl && myEditor.selectStart == NULL) {
                 myEditor.selectStart = myEditor.cursor;
             }
@@ -790,21 +894,21 @@ int main() {
                 myEditor.selectEnd = NULL;
             }
 
-            switch(specialKey) {
-                case 75: // SOL OK TUŞU
-                    if (isCtrl && isShift) moveWordLeft(&myEditor);
-                    else moveCursorLeft(&myEditor);
-                    break;
-                case 77: // SAĞ OK TUŞU
-                    if (isCtrl && isShift) moveWordRight(&myEditor);
-                    else moveCursorRight(&myEditor);
-                    break;
-                case 72: // YUKARI OK TUŞU
-                    moveCursorUp(&myEditor);
-                    break;
-                case 80: // AŞAĞI OK TUŞU
-                    moveCursorDown(&myEditor);
-                    break;
+            // --- YÖN TUŞLARI MANTIĞI ---
+            // C dilinde CTRL + Ok tuşları farklı (115, 116, 141, 145) değerler döndürür!
+            if (specialKey == 75 || specialKey == 115) { // SOL OK veya CTRL+SOL OK
+                if (isCtrl && isShift) moveWordLeft(&myEditor); // Kelime Kelime Seç (İster 2)
+                else moveCursorLeft(&myEditor);                 // Karakter Karakter Seç (İster 1)
+            }
+            else if (specialKey == 77 || specialKey == 116) { // SAĞ OK veya CTRL+SAĞ OK
+                if (isCtrl && isShift) moveWordRight(&myEditor);
+                else moveCursorRight(&myEditor);
+            }
+            else if (specialKey == 72 || specialKey == 141) { // YUKARI OK
+                moveCursorUp(&myEditor);
+            }
+            else if (specialKey == 80 || specialKey == 145) { // AŞAĞI OK
+                moveCursorDown(&myEditor);
             }
 
             // Seçim işlemi devam ediyorsa, bitiş noktasını imlecin yeni yeri olarak güncelle
@@ -839,7 +943,9 @@ int main() {
                         }
                     }
                     break;
-
+                case 7: // CTRL + G (Eşleşmeleri Bul ve Gezin)
+                    findAndNavigateMatches(&myEditor);
+                    break;
                     // BACKSPACE ve CTRL+H ÇAKIŞMASI ÇÖZÜMÜ
                 case 8:
                     if (GetAsyncKeyState(VK_CONTROL) & 0x8000) {
