@@ -7,7 +7,15 @@
 #include <sys/stat.h> // S_ISDIR makrosu ve stat fonksiyonu için
 
 int isUndoing = 0; // Geri alma işlemi yapılıp yapılmadığını takip eden bayrak
+char clipboard[8192] = ""; // Kopyalanan metinleri tutacak pano
 int isNavigatingMatch = 0; //Gezinme modunda olup olmadığımızı tutar
+
+// ZAMAN MAKİNESİ (UNDO STACK) DEĞİŞKENLERİ
+#define MAX_UNDO_STATES 20 // Geriye dönük en fazla 20 işlemi hafızada tutar
+#define MAX_TEXT_SIZE 8192 // Bir metnin alabileceği maksimum harf sayısı
+
+char undoStack[MAX_UNDO_STATES][MAX_TEXT_SIZE];
+int undoTop = -1; // Yığının en üstünü gösteren işaretçi
 
 // Her bir karakteri tutacak olan Çift Yönlü Bağlı Liste Düğümü
 typedef struct Node {
@@ -54,35 +62,43 @@ void pushUndo(Editor* editor, int type, char c) {
 }
 
 // İmlecin solundaki karakteri silme (Normal Backspace)
+// BACKSPACE (SİLME) İŞLEMİ
 void deleteChar(Editor* editor) {
-    // İmleç en baştaysa silinecek bir şey yoktur
-    if (editor->cursor == NULL) return;
+    // 1. Durum: Dosya tamamen boşsa zaten silinecek bir şey yoktur.
+    if (editor->head == NULL) return;
 
-    Node* toDelete = editor->cursor;
+    Node* toDelete = NULL;
 
-    // Silinecek düğümün solundaki bağları güncelle
+    // 2. Durum: İmleç metnin en sonundaysa (NULL ise), en sondaki harfi (tail) sil.
+    if (editor->cursor == NULL) {
+        toDelete = editor->tail;
+    }
+    // 3. DURUM (ÇÖKMEYİ ENGELLEYEN YER): İmleç en baştaysa (head), silinecek harf YOKTUR!
+    else if (editor->cursor == editor->head) {
+        return; // Hiçbir şey yapmadan sessizce fonksiyondan çık. Programı kurtar.
+    }
+    // 4. Durum: İmleç aralarda bir yerdeyse, imlecin bir gerisindeki harfi sil.
+    else {
+        toDelete = editor->cursor->prev;
+    }
+
+    // Güvenlik teyidi
+    if (toDelete == NULL) return;
+
+    // --- DÜĞÜMÜ LİSTEDEN GÜVENLİCE KOPARMA ---
     if (toDelete->prev != NULL) {
         toDelete->prev->next = toDelete->next;
     } else {
-        // Eğer silinen düğüm 'head' ise, head'i bir sağa kaydır
-        editor->head = toDelete->next;
+        editor->head = toDelete->next; // Eğer ilk düğüm silindiyse head'i kaydır
     }
 
-    // Silinecek düğümün sağındaki bağları güncelle
     if (toDelete->next != NULL) {
         toDelete->next->prev = toDelete->prev;
     } else {
-        // Eğer silinen düğüm 'tail' ise, tail'i bir sola kaydır
-        editor->tail = toDelete->prev;
+        editor->tail = toDelete->prev; // Eğer son düğüm silindiyse tail'i kaydır
     }
 
-    // İmleci silinen harfin solundakine geçir
-    editor->cursor = toDelete->prev;
-
-    free(toDelete); // Hafızayı serbest bırak (Memory leak önlemek için)
-
-    // Karakter henüz silinmeden, ne silineceğini yığına haber ver (2 = Silme yapıldı)
-    pushUndo(editor, 2, editor->cursor->data);
+    free(toDelete); // RAM'i (Belleği) temizle
 }
 
 // Yeni bir düğüm (harf) oluşturmak için yardımcı fonksiyon
@@ -215,8 +231,6 @@ void moveWordRight(Editor* editor) {
            }
 }
 
-
-
 // Düğümün (harfin) metindeki sırasını (indeksini) bulur.
 // İmleç en baştaysa (NULL) 0 döner.
 int getNodeIndex(Editor* editor, Node* target) {
@@ -230,11 +244,162 @@ int getNodeIndex(Editor* editor, Node* target) {
     }
     return 0;
 }
+// 1. Ekrandaki fiziksel imleci (X, Y) koordinatına taşıyan fonksiyon
+void gotoxy(int x, int y) {
+    COORD coord;
+    coord.X = x;
+    coord.Y = y;
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+}
+// KOPYALA (CTRL+C)
+void copySelected(Editor* editor) {
+    if (editor->selectStart == NULL || editor->selectEnd == NULL) return;
+
+    int startIdx = getNodeIndex(editor, editor->selectStart);
+    int endIdx = getNodeIndex(editor, editor->selectEnd);
+    int minIdx = (startIdx < endIdx) ? startIdx : endIdx;
+    int maxIdx = (startIdx > endIdx) ? startIdx : endIdx;
+
+    Node* current = editor->head;
+    int currentIdx = 1;
+    int clipIdx = 0;
+
+    while (current != NULL) {
+        if (currentIdx > minIdx && currentIdx <= maxIdx) {
+            clipboard[clipIdx++] = current->data;
+        }
+        current = current->next;
+        currentIdx++;
+    }
+    clipboard[clipIdx] = '\0'; // Panodaki metni sonlandır
+
+    // Kopyalama bitince seçimi iptal et
+    editor->selectStart = NULL;
+    editor->selectEnd = NULL;
+}
+
+// KES (CTRL+X)
+void cutSelected(Editor* editor) {
+    if (editor->selectStart == NULL || editor->selectEnd == NULL) return;
+
+    // 1. Önce Kopyala (Ama seçimi iptal etmemesi için kopyalama işlemini manuel yapıyoruz)
+    int startIdx = getNodeIndex(editor, editor->selectStart);
+    int endIdx = getNodeIndex(editor, editor->selectEnd);
+    int minIdx = (startIdx < endIdx) ? startIdx : endIdx;
+    int maxIdx = (startIdx > endIdx) ? startIdx : endIdx;
+
+    Node* current = editor->head;
+    int currentIdx = 1;
+    int clipIdx = 0;
+
+    // Kopyalama Döngüsü
+    while (current != NULL) {
+        if (currentIdx > minIdx && currentIdx <= maxIdx) {
+            clipboard[clipIdx++] = current->data;
+        }
+        current = current->next;
+        currentIdx++;
+    }
+    clipboard[clipIdx] = '\0';
+
+    // 2. Silme Döngüsü
+    current = editor->head;
+    currentIdx = 1;
+    while (current != NULL) {
+        Node* nextNode = current->next;
+
+        if (currentIdx > minIdx && currentIdx <= maxIdx) {
+            // Düğümü listeden kopar
+            if (current->prev) current->prev->next = current->next;
+            else editor->head = current->next; // Baştaysa head'i güncelle
+
+            if (current->next) current->next->prev = current->prev;
+            else editor->tail = current->prev; // Sondayysa tail'i güncelle
+
+            // Eğer imleç silinen harfteyse, imleci bir öncekine kaydır
+            if (editor->cursor == current) {
+                editor->cursor = current->prev;
+            }
+            free(current); // Bellekten sil
+        }
+        current = nextNode;
+        currentIdx++;
+    }
+
+    editor->selectStart = NULL;
+    editor->selectEnd = NULL;
+}
+
+// YAPIŞTIR (CTRL+V)
+void pasteClipboard(Editor* editor) {
+    if (strlen(clipboard) == 0) return; // Pano boşsa hiçbir şey yapma
+
+    // Panodaki her harfi sırayla editöre ekle
+    for (int i = 0; clipboard[i] != '\0'; i++) {
+        insertChar(editor, clipboard[i]); // Sende zaten var olan harf ekleme fonksiyonu
+    }
+}
+
+// METNİN FOTOĞRAFINI ÇEKİP YIĞINA ATAR (Değişiklik yapmadan hemen önce çağrılır)
+void saveState(Editor* editor) {
+    // Eğer yığın doluysa, en eski kayıtları silip yer aç (Kaydırma işlemi)
+    if (undoTop >= MAX_UNDO_STATES - 1) {
+        for (int i = 0; i < MAX_UNDO_STATES - 1; i++) {
+            strcpy(undoStack[i], undoStack[i + 1]);
+        }
+        undoTop = MAX_UNDO_STATES - 2;
+    }
+
+    undoTop++; // Yığının tepesini bir artır
+
+    // Bağlı listedeki tüm harfleri okuyup string olarak yığına kaydet
+    Node* temp = editor->head;
+    int i = 0;
+    while (temp != NULL && i < MAX_TEXT_SIZE - 1) {
+        undoStack[undoTop][i++] = temp->data;
+        temp = temp->next;
+    }
+    undoStack[undoTop][i] = '\0'; // Stringi bitir
+}
+
+// ZAMANI GERİ ALIR (CTRL + Z)
+void undoAction(Editor* editor) {
+    if (undoTop < 0) {
+        // Yığın boşsa (geri alınacak bir şey kalmadıysa) uyar
+        gotoxy(0, 21);
+        printf("Geri alinacak bir islem yok!       ");
+        Sleep(1000);
+        return;
+    }
+
+    // 1. MEVCUT METNİ TAMAMEN TEMİZLE
+    Node* temp = editor->head;
+    while (temp != NULL) {
+        Node* toDelete = temp;
+        temp = temp->next;
+        free(toDelete);
+    }
+    editor->head = NULL;
+    editor->tail = NULL;
+    editor->cursor = NULL;
+    editor->selectStart = NULL;
+    editor->selectEnd = NULL;
+
+    // 2. YIĞINDAKİ (STACK) SON METNİ GERİ YÜKLE
+    char* previousState = undoStack[undoTop];
+    for (int i = 0; previousState[i] != '\0'; i++) {
+        insertChar(editor, previousState[i]); // Sende zaten var olan harf ekleme fonksiyonu
+    }
+
+    undoTop--; // Yığından bir adım geri git (fotoğrafı çöpe at)
+}
+
 
 // Ekranı ve Metni Çizdirme Fonksiyonu
 void printText(Editor* editor) {
-    system("cls");
-    printf("\x1b[2J\x1b[H");
+    //system("cls");
+    //printf("\x1b[2J\x1b[H");
+    printf("\x1b[H\x1b[J");
 
     printf(" Dosya Ac(CTRL+O) | Kaydet(CTRL+S) | Farkli Kaydet(CTRL+SHIFT+S) | Bul(CTRL+F) | Degistir(CTRL+H)\n");
     printf(" Kopyala(CTRL+C)  | Sec(CTRL+YON)  | Kes(CTRL+X) | Yapistir(CTRL+V) | Geri Al(CTRL+Z) | Cikis(ESC)\n");
@@ -298,13 +463,7 @@ void printText(Editor* editor) {
         currentIdx++;
     }
 }
-// 1. Ekrandaki fiziksel imleci (X, Y) koordinatına taşıyan fonksiyon
-void gotoxy(int x, int y) {
-    COORD coord;
-    coord.X = x;
-    coord.Y = y;
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
-}
+
 
 // 2. İmlecin görünümünü ayarlayan fonksiyon
 void setCursorAppearance() {
@@ -950,6 +1109,7 @@ int main() {
                 case 8:
                     if (GetAsyncKeyState(VK_CONTROL) & 0x8000) {
                         // CTRL + H işlemi (Bul ve Değiştir)
+                        saveState(&myEditor);
                         replaceText(&myEditor);
                     } else {
                         // Normal Backspace işlemi (Karakter silme)
@@ -962,7 +1122,7 @@ int main() {
                     break;
 
                 case 3: // CTRL + C
-                    copyText(&myEditor);
+                    copySelected(&myEditor);
                     break;
                 case 6: // CTRL + F
                     gotoxy(0, 20); // Ekranın altına in
@@ -981,13 +1141,15 @@ int main() {
                     saveToFile(&myEditor);
                     break;
                 case 22: // CTRL + V
-                    pasteText(&myEditor);
+                    saveState(&myEditor);
+                    pasteClipboard(&myEditor);
                     break;
                 case 24: // CTRL + X
-                    cutText(&myEditor);
+                    saveState(&myEditor);
+                    cutSelected(&myEditor);
                     break;
                 case 26: // CTRL + Z
-                    undo(&myEditor);
+                    undoAction(&myEditor);
                     break;
                 case 127: // CTRL + Backspace
                     deleteWord(&myEditor);
