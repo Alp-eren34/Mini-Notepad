@@ -6,58 +6,62 @@
 #include <direct.h>
 #include <sys/stat.h>
 
-char clipboard[8192] = "";
-int isNavigatingMatch = 0;
+char clipboard[8192] = ""; // Kopyala/Kes işlemlerinde metin depolama
+int isNavigatingMatch = 0; // Ctrl+G ile arama modunda olup olmadığını kontrol
 
-#define MAX_UNDO_STATES 20
-#define MAX_TEXT_SIZE 8192
-char undoStack[MAX_UNDO_STATES][MAX_TEXT_SIZE];
-int undoTop = -1;
+#define MAX_UNDO_STATES 20 // Maksimum geri alma işlem sayısı
+#define MAX_TEXT_SIZE 8192 // Maksimum metin boyutu
+char undoStack[MAX_UNDO_STATES][MAX_TEXT_SIZE]; // Geri alma geçmişi depolaması
+int undoTop = -1; // Geri alma yığınının tepesi
+
 typedef struct Node {
-    char data;
-    struct Node* prev;
-    struct Node* next;
+    char data; // Düğümün içerdiği karakter
+    struct Node* prev; // Önceki düğüme işaretçi (sol)
+    struct Node* next; // Sonraki düğüme işaretçi (sağ)
 } Node;
 
-
 typedef struct Editor {
-    Node* head;
-    Node* tail;
-    Node* cursor;
-    char filename[256];
-    char searchWord[100];
-    Node* selectStart;
-    Node* selectEnd;
+    Node* head; // Metnin başlangıcı
+    Node* tail; // Metnin sonu
+    Node* cursor; // İmlecin konumu
+    char filename[256]; // Açık dosyanın adı
+    char searchWord[100]; // Aranan kelime
+    Node* selectStart; // Seçim başlangıcı
+    Node* selectEnd; // Seçim sonu
 } Editor;
 
-void deleteChar(Editor* editor);
-Node* createNode(char c);
-void insertChar(Editor* editor, char c);
-void deleteWord(Editor* editor);
-int isMatch(Node* startNode, const char* word);
-void moveWordLeft(Editor* editor);
-void moveWordRight(Editor* editor);
-int getNodeIndex(Editor* editor, Node* target);
-void gotoxy(int x, int y);
-void copySelected(Editor* editor);
-void cutSelected(Editor* editor);
-void pasteClipboard(Editor* editor);
-void saveState(Editor* editor);
-void undoAction(Editor* editor);
-void printText(Editor* editor);
-void setCursorAppearance();
-void calculateAndMoveCursor(Editor* editor);
-void moveCursorLeft(Editor* editor);
-void moveCursorRight(Editor* editor);
-int getCurrentColumn(Editor* editor);
-void moveCursorUp(Editor* editor);
-void moveCursorDown(Editor* editor);
-void openFileManager(char* resultPath, int mode);
-void saveToFile(Editor* editor);
-void clearEditor(Editor* editor);
-void openFile(Editor* editor);
-void replaceText(Editor* editor);
-void findAndNavigateMatches(Editor* editor);
+void deleteChar(Editor* editor); // İmlecin solundaki karakteri silme
+Node* createNode(char c); // Yeni düğüm oluşturma
+void insertChar(Editor* editor, char c); // İmlecin sağına karakter ekleme
+void deleteWord(Editor* editor); // Ctrl+Backspace ile kelime silme
+int isMatch(Node* startNode, const char* word); // Kelime eşleşme kontrolü
+
+void moveWordLeft(Editor* editor); // Ctrl+Sol Ok ile kelime sola gitme
+void moveWordRight(Editor* editor); // Ctrl+Sağ Ok ile kelime sağa gitme
+int getNodeIndex(Editor* editor, Node* target); // Düğümün konumunu bulma
+void gotoxy(int x, int y); // Konsol imlecini XY koordinatına taşıma
+void moveCursorLeft(Editor* editor); // Sol Ok tuşu hareketi
+void moveCursorRight(Editor* editor); // Sağ Ok tuşu hareketi
+int getCurrentColumn(Editor* editor); // İmlecin sütun konumunu bulma
+void moveCursorUp(Editor* editor); // Yukarı Ok tuşu hareketi
+void moveCursorDown(Editor* editor); // Aşağı Ok tuşu hareketi
+
+void copySelected(Editor* editor); // Ctrl+C ile seçili metni kopyalama
+void cutSelected(Editor* editor); // Ctrl+X ile seçili metni kesme
+void pasteClipboard(Editor* editor); // Ctrl+V ile panodan yapıştırma
+
+void saveState(Editor* editor); // Değişiklik öncesi metni yığına kaydetme
+void undoAction(Editor* editor); // Ctrl+Z ile son işlemi geri alma
+void saveToFile(Editor* editor); // Ctrl+S ile dosyaya kaydetme
+void openFile(Editor* editor); // Ctrl+O ile dosya açma
+void clearEditor(Editor* editor); // Editörü temizleme
+
+void printText(Editor* editor); // Ekrana metni yazdırma ve biçimlendirme
+void setCursorAppearance(); // İmleç görünümünü ayarlama
+void calculateAndMoveCursor(Editor* editor); // İmlecin ekranda doğru konumunu hesaplama
+void openFileManager(char* resultPath, int mode); // Dosya seçici açma
+void replaceText(Editor* editor); // Ctrl+H ile metin arama ve değiştirme
+void findAndNavigateMatches(Editor* editor); // Ctrl+G ile aramaları gezinme
 
 
 int main() {
