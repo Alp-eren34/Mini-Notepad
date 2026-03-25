@@ -1,8 +1,12 @@
 # Mini-Notepad
 
+---
+
+## English Version
+
 A lightweight console-based text editor written in C, featuring essential text editing capabilities with undo/redo functionality.
 
-## Features
+### Features
 
 - **Text Editing**: Full support for inserting and deleting characters
 - **Word Navigation**: Move through text word by word
@@ -13,15 +17,15 @@ A lightweight console-based text editor written in C, featuring essential text e
 - **File Operations**: Save and load text files
 - **Windows Console**: Optimized for Windows console display with cursor positioning
 
-## Requirements
+### Requirements
 
 - C compiler (GCC or MSVC)
 - Windows operating system (uses Windows-specific features)
 - CMake 4.0 or higher
 
-## Building
+### Building
 
-### Using CMake
+#### Using CMake
 
 ```bash
 mkdir build
@@ -30,13 +34,13 @@ cmake ..
 cmake --build .
 ```
 
-### Using GCC directly
+#### Using GCC directly
 
 ```bash
 gcc -o prolab1 main.c
 ```
 
-## Usage
+### Usage
 
 Run the executable:
 
@@ -56,40 +60,41 @@ Run the executable:
 - **Delete/Backspace**: Delete characters
 - **Ctrl+Left/Right**: Move by word
 
-## Project Structure
+### Project Structure
 
 - `main.c` - Main editor implementation
 - `CMakeLists.txt` - CMake build configuration
 - `test/` - Test files directory
 
-## Technical Details
+### Technical Details
 
 The editor uses:
 - **Doubly-linked list** for efficient text storage and navigation
 - **Stack** for undo functionality (up to 20 states)
 - **Windows Console API** for cursor positioning and control
 
-## Data Structures
+### Data Structures
 
 - `Node`: Individual character in the linked list
 - `Editor`: Main editor state containing head, tail, cursor, and other properties
 
-## Limitations
+### Limitations
 
 - Maximum text size: 8192 characters
 - Maximum undo states: 20
 - Windows-only (uses Windows.h)
 
-## License
+### License
 
 This project is provided as-is for educational purposes.
 
-## Author
+### Author
 
 Created as part of a programming laboratory project.
 
+---
 
-# Mini-Notepad
+## Türkçe Versiyonu
 
 C dilinde yazılmış, temel metin düzenleme özelliklerine ve geri alma / yineleme işlevlerine sahip hafif bir konsol tabanlı metin editörü.
 
